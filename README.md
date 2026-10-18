@@ -15,8 +15,10 @@ Nothing from the game is included in this repository.
 Tested in Dolphin with scripted controller input. **Not yet tested on a real Wii.**
 
 - Classic Controller: buttons, D-pad, left stick, right stick as the menu pointer
-  (USA played into a fight; Europe and Japan booted and checked at the input level)
-- GameCube pad: buttons, D-pad, control stick, C-stick as the menu pointer (USA)
+  (USA: from boot through the save prompt, profile and Mii select and Career into a
+  fight with only the Classic Controller; Europe and Japan checked at the patch-site level)
+- GameCube pad: buttons, D-pad, control stick, C-stick as the menu pointer (USA, through
+  the save prompt to the title screen)
 
 Known limits:
 
@@ -26,6 +28,8 @@ Known limits:
 - plug the GameCube pad in **before** starting the game
 - the game is built for a sideways Wii Remote, so that is the layout you get; the
   motion-controlled punches are not emulated
+- while a Classic Controller or GameCube pad is in use the stick drives the menu pointer
+  and the remote's own IR pointer is ignored; the pointer stays where you leave it
 
 ## Controls
 

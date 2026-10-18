@@ -2,9 +2,10 @@
 # status the game just read is at 0xF0(r1): pos at +0x20/+0x24, dpd_valid_fg at +0x5E.
 # r7 = the game's per-channel copy of the previous frame (pos at +0x58/+0x5C).
 #
-# While the stick is held it steers the pointer (from where it was); with the stick
-# at rest a real IR pointer is left alone, and when there is none (the remote is in
-# the controller, not aimed at the screen) the last pointer stays on screen.
+# The stick owns the pointer: while it is held the pointer moves from where it was, and
+# with the stick at rest the pointer stays put.  The remote's own IR pointer is ignored,
+# because a remote lying in view of the sensor bar would otherwise snap the pointer back
+# to where it is aimed the moment the stick is released, and nothing could be clicked.
     stwu    1, -32(1)
     lis     5, 0x3e4c                   # dead zone 0.2
     ori     5, 5, 0xcccd
@@ -31,10 +32,7 @@
     bne     3f
     fcmpu   0, 2, 10
     bne     3f
-    lbz     0, 0x5e+0xf0+32(1)          # dpd_valid_fg
-    cmpwi   0, 0
-    bne     9f                          # a real pointer is there: leave it
-    stfs    11, 0x20+0xf0+32(1)
+    stfs    11, 0x20+0xf0+32(1)         # stick at rest: the pointer stays where it was
     stfs    12, 0x24+0xf0+32(1)
     b       4f
 3:  fmadds  11, 1, 4, 11                # x += stickX * speed

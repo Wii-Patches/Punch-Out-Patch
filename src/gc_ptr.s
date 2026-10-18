@@ -1,7 +1,22 @@
-# hook: `add r7,r24,r27` after the KPADRead in the core path (r25 = channel).  The GameCube
-# pad's C-stick steers the pointer (see ptr_core.s).  SICnINBUFL (0xCD006408 + 12*chan)
-# holds the C-stick in [31:24] (X) and [23:16] (Y), 128 +/- ~100 around the centre.
+# hook: `add r7,r24,r27` after the KPADRead in the core path (r25 = channel).  The pad's
+# buttons go into the KPAD status, and the GameCube pad's C-stick steers the pointer (see
+# ptr_core.s).  SICnINBUFL (0xCD006408 + 12*chan) holds the C-stick in [31:24] (X) and
+# [23:16] (Y), 128 +/- ~100 around the centre.
     add     7, 24, 27                   # displaced instruction
+    # The menus and dialogs read the KPAD buttons, not the WPAD word the pad buttons were
+    # merged into (gc_buttons.s, already copied to 8(r7) this frame).  Merge them into the
+    # KPAD status too: hold |= buttons, and trig/release against last frame's hold (0x38(r7)).
+    # r3 already holds the KPAD hold (loaded just before this hook) and is stored next.
+    lhz     9, 8(7)                     # this frame's remote + pad buttons
+    andi.   9, 9, 0x9F1F
+    lwz     10, 0xF0(1)                 # KPAD hold
+    or      3, 10, 9
+    lwz     11, 0x38(7)                 # last frame's hold
+    andc    12, 3, 11                   # trig
+    andc    11, 11, 3                   # release
+    stw     3, 0xF0(1)
+    stw     12, 0xF4(1)
+    stw     11, 0xF8(1)
     cmplwi  25, 3
     bgt     8f
     mulli   5, 25, 12
@@ -44,16 +59,10 @@
 # status the game just read is at 0xF0(r1): pos at +0x20/+0x24, dpd_valid_fg at +0x5E.
 # r7 = the game's per-channel copy of the previous frame (pos at +0x58/+0x5C).
 #
-# While the stick is held it steers the pointer (from where it was); with the stick
-# at rest a real IR pointer is left alone, and when there is none (the remote is in
-# the controller, not aimed at the screen) the last pointer stays on screen.
-# f1 = stick X (+ right), f2 = stick Y (+ up), already read by the caller.  The KPAD
-# status the game just read is at 0xF0(r1): pos at +0x20/+0x24, dpd_valid_fg at +0x5E.
-# r7 = the game's per-channel copy of the previous frame (pos at +0x58/+0x5C).
-#
-# While the stick is held it steers the pointer (from where it was); with the stick
-# at rest a real IR pointer is left alone, and when there is none (the remote is in
-# the controller, not aimed at the screen) the last pointer stays on screen.
+# The stick owns the pointer: while it is held the pointer moves from where it was, and
+# with the stick at rest the pointer stays put.  The remote's own IR pointer is ignored,
+# because a remote lying in view of the sensor bar would otherwise snap the pointer back
+# to where it is aimed the moment the stick is released, and nothing could be clicked.
     stwu    1, -32(1)
     lis     5, 0x3e4c                   # dead zone 0.2
     ori     5, 5, 0xcccd
@@ -80,10 +89,7 @@
     bne     3f
     fcmpu   0, 2, 10
     bne     3f
-    lbz     0, 0x5e+0xf0+32(1)          # dpd_valid_fg
-    cmpwi   0, 0
-    bne     9f                          # a real pointer is there: leave it
-    stfs    11, 0x20+0xf0+32(1)
+    stfs    11, 0x20+0xf0+32(1)         # stick at rest: the pointer stays where it was
     stfs    12, 0x24+0xf0+32(1)
     b       4f
 3:  fmadds  11, 1, 4, 11                # x += stickX * speed

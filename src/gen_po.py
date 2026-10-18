@@ -14,6 +14,9 @@ TYPE_FLAG = (0x801B0554, 6, 6)       # lbz r0,957(r24): "treat a Classic as a pl
 KPAD_CC = (0x801B0794, 6, 6)         # lwz r3,240(r1) after the core-path KPADRead
 KPAD_GC = (0x801B0798, 6, 6)         # add r7,r24,r27 (the next instruction)
 SETFMT = (0x802187C8, 0, 8)          # WPADSetDataFormat
+PARSE_CL = ((0x8021F2B0, 6, 6),      # sth r0,42(r5) in __parse_cl_data, once per Classic
+            (0x8021F344, 6, 6),      # report layout: the Classic's buttons
+            (0x8021F3F4, 6, 6))
 USA_DOL = None
 
 
@@ -32,29 +35,43 @@ def _bl_target(dol, at):
 def _sites(region, dol):
     usa = USA_DOL
     f = (lambda s: s[0]) if region == 'R7PE01' else (lambda s: find_unique(usa, dol, *s))
-    return f(READ_AFTER), f(READ_BTN), f(TYPE_FLAG), f(SETFMT), f(KPAD_CC), f(KPAD_GC)
+    return f(READ_AFTER), f(READ_BTN), f(TYPE_FLAG), f(SETFMT), f(KPAD_CC), f(KPAD_GC), [f(s) for s in PARSE_CL]
+
+
+def _align(n):
+    return (n + 15) & ~15
 
 
 def build_cc(region, dol):
-    after, _btn, flag, setfmt, kcc, _kgc = _sites(region, dol)
+    after, _btn, flag, setfmt, kcc, _kgc, parse = _sites(region, dol)
     orig = struct.unpack('>I', dol.read(after, 4))[0]
     assert orig == 0x880100E9, hex(orig)
-    body = asm.words(asm.assemble(_read('cc_read.s'), CC_BASE, {'SETFMT': setfmt})) + [0]
-    ptr = asm.words(asm.assemble(_read('cc_ptr.s'), CC_BASE + ((len(body) * 4 + 15) & ~15))) + [0]
     porig = struct.unpack('>I', dol.read(kcc, 4))[0]
     assert porig == 0x806100F0, hex(porig)
+    for at in parse:
+        assert struct.unpack('>I', dol.read(at, 4))[0] == 0xB005002A, hex(at)
+    read_at = CC_BASE
+    read = asm.words(asm.assemble(_read('cc_read.s'), read_at, {'SETFMT': setfmt})) + [0]
+    ptr_at = _align(read_at + len(read) * 4)
+    ptr = asm.words(asm.assemble(_read('cc_ptr.s'), ptr_at)) + [0]
+    btns, at = [], _align(ptr_at + len(ptr) * 4)
+    for site in parse:
+        btn = asm.words(asm.assemble(_read('cc_parse.s'), at)) + [0]
+        btns.append((site, at, btn))
+        at = _align(at + len(btn) * 4)
+    if at > CC_END:
+        raise SystemExit('cc code overflows its window')
     ops = [Patch(flag, struct.pack('>I', 0x38000001), dol.read(flag, 4),
                  note='extension check: let a Classic Controller take the Wii Remote path'),
-           Hook(after, orig, body, CC_BASE, note='pad update: Classic Controller buttons -> Wii Remote bits'),
-           Hook(kcc, porig, ptr, CC_BASE + ((len(body) * 4 + 15) & ~15),
-                note='pad update: right stick steers the pointer')]
-    if CC_BASE + ((len(body) * 4 + 15) & ~15) + len(ptr) * 4 > CC_END:
-        raise SystemExit('cc code overflows its window')
+           Hook(after, orig, read, read_at, note='pad update: read the Classic Controller data format'),
+           Hook(kcc, porig, ptr, ptr_at, note='pad update: right stick steers the pointer')]
+    ops += [Hook(site, 0xB005002A, btn, at, note='WPAD: Classic Controller buttons and left stick -> Wii Remote buttons')
+            for site, at, btn in btns]
     return Feature('cc', 'Classic Controller', region, ops)
 
 
 def build_gc(region, dol):
-    _after, btn, _flag, _s, _kcc, kgc = _sites(region, dol)
+    _after, btn, _flag, _s, _kcc, kgc, _parse = _sites(region, dol)
     orig = struct.unpack('>I', dol.read(btn, 4))[0]
     assert orig == 0xA00100C0, hex(orig)
     body = asm.words(asm.assemble(_read('gc_buttons.s'), GC_BASE)) + [0]
